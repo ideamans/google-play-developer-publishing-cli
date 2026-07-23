@@ -1,0 +1,9 @@
+# サービスアカウントJSONキーは絶対にコミットしない
+*service-account*.json
+*service_account*.json
+play-publisher*.json
+*-key.json
+.env
+
+/gplay
+/dist
