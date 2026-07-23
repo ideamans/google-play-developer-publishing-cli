@@ -16,6 +16,10 @@ var (
 	otProducts       []string
 	otPurchaseOption string
 	otOffer          string
+	otOffers         []string
+	otActivate       []string
+	otDeactivate     []string
+	otCancel         []string
 	otFromJSON       string
 	otUpdateMask     string
 	otRegionsVersion string
@@ -294,6 +298,136 @@ var otOffersCancelCmd = &cobra.Command{
 	RunE:  otOfferState("cancel"),
 }
 
+var otOffersBatchGetCmd = &cobra.Command{
+	Use:     "batch-get",
+	Short:   "Fetch several offers of a purchase option in one request",
+	Long:    `Pass --offer repeatedly, or a full BatchGetOneTimeProductOffersRequest with --from-json.`,
+	Example: `  gplay one-time-products offers batch-get --product rental_48h --purchase-option standard --offer launch`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return run(cmd, func(ctx context.Context, c *api.Client, pkg string) error {
+			body, err := otOfferBatch(pkg, otOffers, "")
+			if err != nil {
+				return err
+			}
+			// A batch get reads only, so it runs even under --dry-run.
+			doc, err := c.PostReadOnly(ctx, otOffersPath(pkg, ":batchGet"), body)
+			if err != nil {
+				return err
+			}
+			return printJSON(doc)
+		})
+	},
+}
+
+var otOffersBatchUpdateCmd = &cobra.Command{
+	Use:   "batch-update",
+	Short: "Create or update several one-time product offers in one request",
+	Long: `Takes a BatchUpdateOneTimeProductOffersRequest body:
+{"requests":[{"oneTimeProductOffer":{...},"updateMask":"regionalPricingAndAvailabilityConfigs","allowMissing":true}, ...]}.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return run(cmd, func(ctx context.Context, c *api.Client, pkg string) error {
+			var body map[string]any
+			if err := jsonFromFlag(otFromJSON, &body); err != nil {
+				return err
+			}
+			doc, err := c.Post(ctx, otOffersPath(pkg, ":batchUpdate"), body)
+			if err != nil {
+				return err
+			}
+			return printJSON(doc)
+		})
+	},
+}
+
+var otOffersBatchStatesCmd = &cobra.Command{
+	Use:   "batch-set-states",
+	Short: "Activate, deactivate and cancel several offers in one request",
+	Long: `Build the batch from --activate / --deactivate / --cancel, or pass a full
+BatchUpdateOneTimeProductOfferStatesRequest with --from-json.`,
+	Example: `  gplay one-time-products offers batch-set-states --product rental_48h --purchase-option standard --activate launch --cancel old-promo`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return run(cmd, func(ctx context.Context, c *api.Client, pkg string) error {
+			body := map[string]any{}
+			if otFromJSON != "" {
+				if err := jsonFromFlag(otFromJSON, &body); err != nil {
+					return err
+				}
+			} else {
+				requests := []any{}
+				for _, id := range otActivate {
+					requests = append(requests, map[string]any{"activateOneTimeProductOfferRequest": otOfferRef(pkg, id)})
+				}
+				for _, id := range otDeactivate {
+					requests = append(requests, map[string]any{"deactivateOneTimeProductOfferRequest": otOfferRef(pkg, id)})
+				}
+				for _, id := range otCancel {
+					requests = append(requests, map[string]any{"cancelOneTimeProductOfferRequest": otOfferRef(pkg, id)})
+				}
+				if len(requests) == 0 {
+					return fmt.Errorf("nothing to do: pass --activate / --deactivate / --cancel, or --from-json")
+				}
+				body["requests"] = requests
+			}
+			doc, err := c.Post(ctx, otOffersPath(pkg, ":batchUpdateStates"), body)
+			if err != nil {
+				return err
+			}
+			return printJSON(doc)
+		})
+	},
+}
+
+var otOffersBatchDeleteCmd = &cobra.Command{
+	Use:     "batch-delete",
+	Short:   "Delete several one-time product offers in one request",
+	Example: `  gplay one-time-products offers batch-delete --product rental_48h --purchase-option standard --offer old-promo`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return run(cmd, func(ctx context.Context, c *api.Client, pkg string) error {
+			body, err := otOfferBatch(pkg, otOffers, otFromJSON)
+			if err != nil {
+				return err
+			}
+			if _, err := c.Post(ctx, otOffersPath(pkg, ":batchDelete"), body); err != nil {
+				return err
+			}
+			fmt.Printf("Deleted %d offers.\n", len(otOffers))
+			return nil
+		})
+	},
+}
+
+func otOffersPath(pkg, suffix string) string {
+	return appPath(pkg, "/oneTimeProducts/%s/purchaseOptions/%s/offers%s",
+		esc(otProduct), esc(otPurchaseOption), suffix)
+}
+
+func otOfferRef(pkg, offerID string) map[string]any {
+	return map[string]any{
+		"packageName": pkg, "productId": otProduct,
+		"purchaseOptionId": otPurchaseOption, "offerId": offerID,
+	}
+}
+
+// otOfferBatch builds a {"requests":[...]} body from repeated --offer flags, or
+// decodes fromJSON when it is given.
+func otOfferBatch(pkg string, offers []string, fromJSON string) (map[string]any, error) {
+	if fromJSON != "" {
+		var body map[string]any
+		if err := jsonFromFlag(fromJSON, &body); err != nil {
+			return nil, err
+		}
+		return body, nil
+	}
+	if len(offers) == 0 {
+		return nil, fmt.Errorf("pass --offer (repeatable) or --from-json")
+	}
+	requests := make([]any, 0, len(offers))
+	for _, id := range offers {
+		requests = append(requests, otOfferRef(pkg, id))
+	}
+	return map[string]any{"requests": requests}, nil
+}
+
 func otOfferState(action string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		return run(cmd, func(ctx context.Context, c *api.Client, pkg string) error {
@@ -317,19 +451,32 @@ func joinKeys(body map[string]any, skip ...string) string {
 }
 
 func init() {
-	productScoped := []*cobra.Command{
+	offerCmds := []*cobra.Command{
+		otOffersListCmd, otOffersActivateCmd, otOffersDeactivateCmd, otOffersCancelCmd,
+		otOffersBatchGetCmd, otOffersBatchUpdateCmd, otOffersBatchStatesCmd, otOffersBatchDeleteCmd,
+	}
+	productScoped := append([]*cobra.Command{
 		otGetCmd, otUpdateCmd, otDeleteCmd,
 		otOptionsStatesCmd, otOptionsDeleteCmd,
-		otOffersListCmd, otOffersActivateCmd, otOffersDeactivateCmd, otOffersCancelCmd,
-	}
+	}, offerCmds...)
 	for _, sub := range productScoped {
 		sub.Flags().StringVar(&otProduct, "product", "", "one-time product id (required)")
 		_ = sub.MarkFlagRequired("product")
 	}
-	for _, sub := range []*cobra.Command{otOptionsDeleteCmd, otOffersListCmd, otOffersActivateCmd, otOffersDeactivateCmd, otOffersCancelCmd} {
+	for _, sub := range append([]*cobra.Command{otOptionsDeleteCmd}, offerCmds...) {
 		sub.Flags().StringVar(&otPurchaseOption, "purchase-option", "", "purchase option id (required)")
 		_ = sub.MarkFlagRequired("purchase-option")
 	}
+	for _, sub := range []*cobra.Command{otOffersBatchGetCmd, otOffersBatchDeleteCmd} {
+		sub.Flags().StringArrayVar(&otOffers, "offer", nil, "offer id; repeatable")
+	}
+	otOffersBatchStatesCmd.Flags().StringArrayVar(&otActivate, "activate", nil, "offer id to activate; repeatable")
+	otOffersBatchStatesCmd.Flags().StringArrayVar(&otDeactivate, "deactivate", nil, "offer id to deactivate; repeatable")
+	otOffersBatchStatesCmd.Flags().StringArrayVar(&otCancel, "cancel", nil, "offer id to cancel; repeatable")
+	for _, sub := range []*cobra.Command{otOffersBatchGetCmd, otOffersBatchUpdateCmd, otOffersBatchStatesCmd, otOffersBatchDeleteCmd} {
+		sub.Flags().StringVar(&otFromJSON, "from-json", "", "batch request JSON, or @file")
+	}
+	_ = otOffersBatchUpdateCmd.MarkFlagRequired("from-json")
 	for _, sub := range []*cobra.Command{otOffersActivateCmd, otOffersDeactivateCmd, otOffersCancelCmd} {
 		sub.Flags().StringVar(&otOffer, "offer", "", "offer id (required)")
 		_ = sub.MarkFlagRequired("offer")
@@ -349,7 +496,8 @@ func init() {
 	_ = otOptionsStatesCmd.MarkFlagRequired("from-json")
 
 	otOptionsCmd.AddCommand(otOptionsStatesCmd, otOptionsDeleteCmd)
-	otOffersCmd.AddCommand(otOffersListCmd, otOffersActivateCmd, otOffersDeactivateCmd, otOffersCancelCmd)
+	otOffersCmd.AddCommand(otOffersListCmd, otOffersActivateCmd, otOffersDeactivateCmd, otOffersCancelCmd,
+		otOffersBatchGetCmd, otOffersBatchUpdateCmd, otOffersBatchStatesCmd, otOffersBatchDeleteCmd)
 	oneTimeCmd.AddCommand(otListCmd, otGetCmd, otBatchGetCmd, otUpdateCmd, otDeleteCmd,
 		otBatchDeleteCmd, otBatchUpdateCmd, otOptionsCmd, otOffersCmd)
 	rootCmd.AddCommand(oneTimeCmd)

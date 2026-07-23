@@ -7,3 +7,6 @@ play-publisher*.json
 
 /gplay
 /dist
+
+# 個人の作業メモ
+/todo.md

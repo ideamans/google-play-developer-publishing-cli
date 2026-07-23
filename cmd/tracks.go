@@ -29,6 +29,7 @@ var (
 	trackFormFactor   string
 	testerGroups      []string
 	testerReplace     bool
+	trackPut          bool
 )
 
 var tracksCmd = &cobra.Command{
@@ -341,8 +342,16 @@ var testersSetCmd = &cobra.Command{
 				}
 				groups = mergeUnique(current.Strings("googleGroups"), testerGroups)
 			}
-			if _, err := e.c.Patch(ctx, e.path("/testers/%s", esc(trackName)),
-				map[string]any{"googleGroups": groups}); err != nil {
+			body := map[string]any{"googleGroups": groups}
+			path := e.path("/testers/%s", esc(trackName))
+			var err error
+			if testerReplace {
+				// --replace means the group list is authoritative, so send a full update.
+				_, err = e.c.Put(ctx, path, body)
+			} else {
+				_, err = e.c.Patch(ctx, path, body)
+			}
+			if err != nil {
 				return err
 			}
 			fmt.Printf("Track %s testers: %s\n", trackName, commaJoin(groups))
@@ -445,7 +454,14 @@ func writeTrack(ctx context.Context, e *edit, track string, release map[string]a
 		releases = merged
 	}
 	body := map[string]any{"track": track, "releases": releases}
-	if _, err := e.c.Patch(ctx, e.path("/tracks/%s", esc(track)), body); err != nil {
+	path := e.path("/tracks/%s", esc(track))
+	var err error
+	if trackPut {
+		_, err = e.c.Put(ctx, path, body)
+	} else {
+		_, err = e.c.Patch(ctx, path, body)
+	}
+	if err != nil {
 		return err
 	}
 	fmt.Printf("Track %s set to %s.\n", track, describeRelease(release))
@@ -543,6 +559,7 @@ func addReleaseFlags(cmds ...*cobra.Command) {
 		c.Flags().Int64Var(&trackUpdatePrio, "in-app-update-priority", 0, "in-app update priority, 0-5")
 		c.Flags().BoolVar(&trackKeepExisting, "keep-existing", false, "merge into the track's existing releases instead of replacing them")
 		c.Flags().StringVar(&trackFromJSON, "from-json", "", "TrackRelease JSON, or @file; other flags override it")
+		c.Flags().BoolVar(&trackPut, "put", false, "send a full track update (PUT) instead of a patch")
 	}
 }
 

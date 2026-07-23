@@ -16,6 +16,9 @@ var (
 	subProducts       []string
 	subBasePlan       string
 	subOffer          string
+	subOffers         []string
+	subActivate       []string
+	subDeactivate     []string
 	subFromJSON       string
 	subUpdateMask     string
 	subShowArchived   bool
@@ -226,6 +229,29 @@ var subsArchiveCmd = &cobra.Command{
 	},
 }
 
+var subsBatchUpdateCmd = &cobra.Command{
+	Use:   "batch-update",
+	Short: "Create or update up to 100 subscriptions in one request",
+	Long: `Takes a BatchUpdateSubscriptionsRequest body:
+{"requests":[{"subscription":{...},"updateMask":"listings","allowMissing":true}, ...]}.
+
+Every request in the batch must carry the same packageName as --package.`,
+	Example: `  gplay subscriptions batch-update --from-json @subscriptions.json`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return run(cmd, func(ctx context.Context, c *api.Client, pkg string) error {
+			var body map[string]any
+			if err := jsonFromFlag(subFromJSON, &body); err != nil {
+				return err
+			}
+			doc, err := c.Post(ctx, appPath(pkg, "/subscriptions:batchUpdate"), body)
+			if err != nil {
+				return err
+			}
+			return printJSON(doc)
+		})
+	},
+}
+
 // --- Base plans ------------------------------------------------------------------
 
 var basePlansCmd = &cobra.Command{
@@ -315,6 +341,67 @@ version to migrate; see MigrateBasePlanPricesRequest.`,
 			return printJSON(doc)
 		})
 	},
+}
+
+var basePlansBatchStatesCmd = &cobra.Command{
+	Use:   "batch-set-states",
+	Short: "Activate and deactivate several base plans in one request",
+	Long: `Activates and/or deactivates base plans of one subscription atomically.
+Build the batch from --activate / --deactivate, or pass a full
+BatchUpdateBasePlanStatesRequest with --from-json.`,
+	Example: `  gplay subscriptions base-plans batch-set-states --product premium --activate monthly --deactivate legacy-monthly`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return run(cmd, func(ctx context.Context, c *api.Client, pkg string) error {
+			body := map[string]any{}
+			if subFromJSON != "" {
+				if err := jsonFromFlag(subFromJSON, &body); err != nil {
+					return err
+				}
+			} else {
+				requests := []any{}
+				for _, id := range subActivate {
+					requests = append(requests, map[string]any{"activateBasePlanRequest": basePlanRef(pkg, id)})
+				}
+				for _, id := range subDeactivate {
+					requests = append(requests, map[string]any{"deactivateBasePlanRequest": basePlanRef(pkg, id)})
+				}
+				if len(requests) == 0 {
+					return fmt.Errorf("nothing to do: pass --activate and/or --deactivate, or --from-json")
+				}
+				body["requests"] = requests
+			}
+			doc, err := c.Post(ctx, appPath(pkg, "/subscriptions/%s/basePlans:batchUpdateStates", esc(subProduct)), body)
+			if err != nil {
+				return err
+			}
+			return printJSON(doc)
+		})
+	},
+}
+
+var basePlansBatchMigrateCmd = &cobra.Command{
+	Use:   "batch-migrate-prices",
+	Short: "Migrate subscriber prices for several base plans in one request",
+	Long: `Takes a BatchMigrateBasePlanPricesRequest body:
+{"requests":[{"basePlanId":"monthly","regionalPriceMigrations":[...],"regionsVersion":{"version":"2022/02"}}, ...]}.`,
+	Example: `  gplay subscriptions base-plans batch-migrate-prices --product premium --from-json @migrations.json`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return run(cmd, func(ctx context.Context, c *api.Client, pkg string) error {
+			var body map[string]any
+			if err := jsonFromFlag(subFromJSON, &body); err != nil {
+				return err
+			}
+			doc, err := c.Post(ctx, appPath(pkg, "/subscriptions/%s/basePlans:batchMigratePrices", esc(subProduct)), body)
+			if err != nil {
+				return err
+			}
+			return printJSON(doc)
+		})
+	},
+}
+
+func basePlanRef(pkg, basePlanID string) map[string]any {
+	return map[string]any{"packageName": pkg, "productId": subProduct, "basePlanId": basePlanID}
 }
 
 // --- Offers -----------------------------------------------------------------------
@@ -449,6 +536,104 @@ var offersDeleteCmd = &cobra.Command{
 	},
 }
 
+var offersBatchGetCmd = &cobra.Command{
+	Use:     "batch-get",
+	Short:   "Fetch several offers of a base plan in one request",
+	Long:    `Pass --offer repeatedly, or a full BatchGetSubscriptionOffersRequest with --from-json.`,
+	Example: `  gplay subscriptions offers batch-get --product premium --base-plan monthly --offer intro-7d --offer winback`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return run(cmd, func(ctx context.Context, c *api.Client, pkg string) error {
+			body := map[string]any{}
+			if subFromJSON != "" {
+				if err := jsonFromFlag(subFromJSON, &body); err != nil {
+					return err
+				}
+			} else {
+				if len(subOffers) == 0 {
+					return fmt.Errorf("pass --offer (repeatable) or --from-json")
+				}
+				requests := []any{}
+				for _, id := range subOffers {
+					requests = append(requests, offerRef(pkg, id))
+				}
+				body["requests"] = requests
+			}
+			// A batch get reads only, so it runs even under --dry-run.
+			doc, err := c.PostReadOnly(ctx, appPath(pkg, "/subscriptions/%s/basePlans/%s/offers:batchGet",
+				esc(subProduct), esc(subBasePlan)), body)
+			if err != nil {
+				return err
+			}
+			return printJSON(doc)
+		})
+	},
+}
+
+var offersBatchUpdateCmd = &cobra.Command{
+	Use:   "batch-update",
+	Short: "Create or update several offers in one request",
+	Long: `Takes a BatchUpdateSubscriptionOffersRequest body:
+{"requests":[{"subscriptionOffer":{...},"updateMask":"phases","allowMissing":true}, ...]}.`,
+	Example: `  gplay subscriptions offers batch-update --product premium --base-plan monthly --from-json @offers.json`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return run(cmd, func(ctx context.Context, c *api.Client, pkg string) error {
+			var body map[string]any
+			if err := jsonFromFlag(subFromJSON, &body); err != nil {
+				return err
+			}
+			doc, err := c.Post(ctx, appPath(pkg, "/subscriptions/%s/basePlans/%s/offers:batchUpdate",
+				esc(subProduct), esc(subBasePlan)), body)
+			if err != nil {
+				return err
+			}
+			return printJSON(doc)
+		})
+	},
+}
+
+var offersBatchStatesCmd = &cobra.Command{
+	Use:   "batch-set-states",
+	Short: "Activate and deactivate several offers in one request",
+	Long: `Build the batch from --activate / --deactivate, or pass a full
+BatchUpdateSubscriptionOfferStatesRequest with --from-json.`,
+	Example: `  gplay subscriptions offers batch-set-states --product premium --base-plan monthly --activate intro-7d --deactivate old-promo`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return run(cmd, func(ctx context.Context, c *api.Client, pkg string) error {
+			body := map[string]any{}
+			if subFromJSON != "" {
+				if err := jsonFromFlag(subFromJSON, &body); err != nil {
+					return err
+				}
+			} else {
+				requests := []any{}
+				for _, id := range subActivate {
+					requests = append(requests, map[string]any{"activateSubscriptionOfferRequest": offerRef(pkg, id)})
+				}
+				for _, id := range subDeactivate {
+					requests = append(requests, map[string]any{"deactivateSubscriptionOfferRequest": offerRef(pkg, id)})
+				}
+				if len(requests) == 0 {
+					return fmt.Errorf("nothing to do: pass --activate and/or --deactivate, or --from-json")
+				}
+				body["requests"] = requests
+			}
+			doc, err := c.Post(ctx, appPath(pkg, "/subscriptions/%s/basePlans/%s/offers:batchUpdateStates",
+				esc(subProduct), esc(subBasePlan)), body)
+			if err != nil {
+				return err
+			}
+			return printJSON(doc)
+		})
+	},
+}
+
+func offerRef(pkg, offerID string) map[string]any {
+	return map[string]any{
+		"packageName": pkg, "productId": subProduct,
+		"basePlanId": subBasePlan, "offerId": offerID,
+	}
+}
+
 // --- Helpers ------------------------------------------------------------------------
 
 func offerPath(pkg, suffix string) string {
@@ -574,7 +759,9 @@ func init() {
 	productCmds := []*cobra.Command{
 		subsGetCmd, subsCreateCmd, subsUpdateCmd, subsDeleteCmd, subsArchiveCmd,
 		basePlansListCmd, basePlansActivateCmd, basePlansDeactivateCmd, basePlansDeleteCmd, basePlansMigrateCmd,
+		basePlansBatchStatesCmd, basePlansBatchMigrateCmd,
 		offersListCmd, offersGetCmd, offersCreateCmd, offersUpdateCmd, offersActivateCmd, offersDeactivateCmd, offersDeleteCmd,
+		offersBatchGetCmd, offersBatchUpdateCmd, offersBatchStatesCmd,
 	}
 	for _, sub := range productCmds {
 		sub.Flags().StringVar(&subProduct, "product", "", "subscription product id (required)")
@@ -583,6 +770,7 @@ func init() {
 	basePlanCmds := []*cobra.Command{
 		basePlansActivateCmd, basePlansDeactivateCmd, basePlansDeleteCmd, basePlansMigrateCmd,
 		offersListCmd, offersGetCmd, offersCreateCmd, offersUpdateCmd, offersActivateCmd, offersDeactivateCmd, offersDeleteCmd,
+		offersBatchGetCmd, offersBatchUpdateCmd, offersBatchStatesCmd,
 	}
 	for _, sub := range basePlanCmds {
 		sub.Flags().StringVar(&subBasePlan, "base-plan", "", "base plan id (required)")
@@ -596,6 +784,21 @@ func init() {
 		sub.Flags().StringVar(&subFromJSON, "from-json", "", "resource JSON, or @file")
 		sub.Flags().StringVar(&subRegionsVersion, "regions-version", defaultRegionsVersion, "region catalogue version for price changes")
 	}
+	batchCmds := []*cobra.Command{
+		subsBatchUpdateCmd, basePlansBatchStatesCmd, basePlansBatchMigrateCmd,
+		offersBatchGetCmd, offersBatchUpdateCmd, offersBatchStatesCmd,
+	}
+	for _, sub := range batchCmds {
+		sub.Flags().StringVar(&subFromJSON, "from-json", "", "batch request JSON, or @file")
+	}
+	for _, sub := range []*cobra.Command{subsBatchUpdateCmd, basePlansBatchMigrateCmd, offersBatchUpdateCmd} {
+		_ = sub.MarkFlagRequired("from-json")
+	}
+	for _, sub := range []*cobra.Command{basePlansBatchStatesCmd, offersBatchStatesCmd} {
+		sub.Flags().StringArrayVar(&subActivate, "activate", nil, "id to activate; repeatable")
+		sub.Flags().StringArrayVar(&subDeactivate, "deactivate", nil, "id to deactivate; repeatable")
+	}
+	offersBatchGetCmd.Flags().StringArrayVar(&subOffers, "offer", nil, "offer id; repeatable")
 	for _, sub := range []*cobra.Command{subsUpdateCmd, offersUpdateCmd} {
 		sub.Flags().StringVar(&subUpdateMask, "update-mask", "", "comma-separated fields to replace (inferred from the body when omitted)")
 	}
@@ -611,9 +814,11 @@ func init() {
 	subsBatchGetCmd.Flags().StringArrayVar(&subProducts, "product", nil, "subscription product id; repeatable (required)")
 	_ = subsBatchGetCmd.MarkFlagRequired("product")
 
-	basePlansCmd.AddCommand(basePlansListCmd, basePlansActivateCmd, basePlansDeactivateCmd, basePlansDeleteCmd, basePlansMigrateCmd)
-	offersCmd.AddCommand(offersListCmd, offersGetCmd, offersCreateCmd, offersUpdateCmd, offersActivateCmd, offersDeactivateCmd, offersDeleteCmd)
+	basePlansCmd.AddCommand(basePlansListCmd, basePlansActivateCmd, basePlansDeactivateCmd, basePlansDeleteCmd,
+		basePlansMigrateCmd, basePlansBatchStatesCmd, basePlansBatchMigrateCmd)
+	offersCmd.AddCommand(offersListCmd, offersGetCmd, offersCreateCmd, offersUpdateCmd, offersActivateCmd,
+		offersDeactivateCmd, offersDeleteCmd, offersBatchGetCmd, offersBatchUpdateCmd, offersBatchStatesCmd)
 	subscriptionsCmd.AddCommand(subsListCmd, subsGetCmd, subsBatchGetCmd, subsCreateCmd, subsUpdateCmd,
-		subsDeleteCmd, subsArchiveCmd, basePlansCmd, offersCmd)
+		subsBatchUpdateCmd, subsDeleteCmd, subsArchiveCmd, basePlansCmd, offersCmd)
 	rootCmd.AddCommand(subscriptionsCmd)
 }

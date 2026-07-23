@@ -96,6 +96,57 @@ func (c *Client) UploadBytes(ctx context.Context, path string, data []byte, cont
 	return decodeDoc(body)
 }
 
+// UploadMultipart sends a file together with a JSON metadata part, which is
+// what endpoints whose request body carries required fields alongside the media
+// expect (uploadType=multipart).
+func (c *Client) UploadMultipart(ctx context.Context, path, filePath, contentType string, metadata any) (Doc, error) {
+	absURL := uploadURL("upload", path, "multipart")
+	meta, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, err
+	}
+	if c.DryRun {
+		fmt.Fprintf(os.Stderr, "DRY-RUN UPLOAD %s <- %s (%s)\n%s\n", absURL, filePath, contentType, meta)
+		return Doc{}, nil
+	}
+	media, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	const boundary = "gplay-multipart-boundary"
+	var body bytes.Buffer
+	fmt.Fprintf(&body, "--%s\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n%s\r\n", boundary, meta)
+	fmt.Fprintf(&body, "--%s\r\nContent-Type: %s\r\n\r\n", boundary, contentType)
+	body.Write(media)
+	fmt.Fprintf(&body, "\r\n--%s--\r\n", boundary)
+
+	token, err := c.Token(ctx, auth.ScopeAndroidPublisher)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, absURL, bytes.NewReader(body.Bytes()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "multipart/related; boundary="+boundary)
+	req.ContentLength = int64(body.Len())
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 300 {
+		return nil, apiError(resp.StatusCode, data)
+	}
+	return decodeDoc(data)
+}
+
 // uploadResumable implements the Google resumable upload protocol: start a
 // session, then PUT chunks until the server returns the final response.
 func (c *Client) uploadResumable(ctx context.Context, path, filePath, contentType string, size int64) (Doc, error) {

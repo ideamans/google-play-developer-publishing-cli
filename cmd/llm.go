@@ -179,6 +179,20 @@ changes state immediately.
   Developer Reporting API for that and needs it enabled separately.
 - **Statistics, vitals and financial reports are not in this API.** They live in
   the Play Developer Reporting API and in the Cloud Storage report bucket.
+- **Prices come in two encodings.** inappproducts uses priceMicros strings
+  ("gplay products" takes CURRENCY:AMOUNT and converts); the monetization
+  endpoints use Money with units and nanos ("gplay pricing convert" emits that
+  shape). Do not copy one into the other.
+- **Bulk endpoints exist for the monetization resources** and take a
+  {"requests":[...]} body: "subscriptions batch-update",
+  "subscriptions base-plans batch-set-states / batch-migrate-prices",
+  "subscriptions offers batch-get / batch-update / batch-set-states", and the
+  same set under "one-time-products offers". Prefer them over loops when
+  changing many products at once — they are atomic and cheaper on quota.
+- **"gplay app-store" is not for app developers.** It is the surface for
+  operators of a competing Android app store: registering the apps their store
+  hosts for Google's policy review, and reading the Play catalog export. Google
+  gates it to approved partners, so other accounts get 403.
 
 ### Things only a human can do in the Play Console
 

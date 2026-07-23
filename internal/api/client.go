@@ -165,6 +165,32 @@ func (c *Client) Post(ctx context.Context, path string, payload any) (Doc, error
 	return c.mutate(ctx, http.MethodPost, path, payload)
 }
 
+// PostReadOnly sends a POST that changes no state — validating an edit,
+// converting prices, reading a batch — and therefore runs even under --dry-run,
+// where suppressing it would leave the caller with nothing to show.
+func (c *Client) PostReadOnly(ctx context.Context, path string, payload any) (Doc, error) {
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewReader(encoded)
+	}
+	data, err := c.Do(ctx, http.MethodPost, path, body)
+	if err != nil {
+		return nil, err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return Doc{}, nil
+	}
+	var doc Doc
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	return doc, nil
+}
+
 // Patch sends a PATCH with a JSON body.
 func (c *Client) Patch(ctx context.Context, path string, payload any) (Doc, error) {
 	return c.mutate(ctx, http.MethodPatch, path, payload)

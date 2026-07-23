@@ -162,6 +162,7 @@ var (
 	detailsContactPhone   string
 	detailsContactWebsite string
 	detailsDefaultLang    string
+	detailsReplace        bool
 )
 
 var detailsCmd = &cobra.Command{
@@ -189,8 +190,10 @@ it opens an edit, reads the details and discards the edit.`,
 }
 
 var detailsSetCmd = &cobra.Command{
-	Use:     "set",
-	Short:   "Update the app details",
+	Use:   "set",
+	Short: "Update the app details",
+	Long: `Updates the fields you pass and leaves the rest untouched (PATCH). Pass
+--replace to send a full update (PUT), which clears fields you omit.`,
 	Example: `  gplay details set --contact-email support@example.com --contact-website https://example.com/support`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runEdit(cmd, func(ctx context.Context, e *edit) error {
@@ -210,7 +213,13 @@ var detailsSetCmd = &cobra.Command{
 			if len(body) == 0 {
 				return fmt.Errorf("nothing to set: pass --contact-email / --contact-phone / --contact-website / --default-language")
 			}
-			if _, err := e.c.Patch(ctx, e.path("/details"), body); err != nil {
+			var err error
+			if detailsReplace {
+				_, err = e.c.Put(ctx, e.path("/details"), body)
+			} else {
+				_, err = e.c.Patch(ctx, e.path("/details"), body)
+			}
+			if err != nil {
 				return err
 			}
 			fmt.Println("App details updated.")
@@ -269,6 +278,7 @@ func init() {
 	detailsSetCmd.Flags().StringVar(&detailsContactPhone, "contact-phone", "", "user-visible support phone number")
 	detailsSetCmd.Flags().StringVar(&detailsContactWebsite, "contact-website", "", "user-visible support website")
 	detailsSetCmd.Flags().StringVar(&detailsDefaultLang, "default-language", "", "default language, e.g. ja")
+	detailsSetCmd.Flags().BoolVar(&detailsReplace, "replace", false, "send a full update (PUT), clearing omitted fields")
 
 	addEditReadFlags(listingsListCmd, listingsGetCmd, detailsGetCmd)
 	addEditFlags(listingsSetCmd, listingsDeleteCmd, listingsDeleteAllCmd, detailsSetCmd)

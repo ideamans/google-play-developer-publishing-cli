@@ -24,6 +24,10 @@ gplay configure --key ~/Downloads/play-publisher-abc123.json --package com.examp
 2. IAM & 管理 > サービスアカウント で JSON キーを作成
 3. Play Console > ユーザーと権限 でそのサービスアカウントを招待し、対象アプリへのアクセス権を付与
 
+> Play Console の「API アクセス」ページから GCP プロジェクトをリンクする手順が案内されることがありますが、
+> このページはアカウントの状態によっては開けません（ホームにリダイレクトされます）。
+> その場合でも上記 1〜3 だけで完結します。サービスアカウントの招待は「ユーザーと権限」から行えます。
+
 登録されるもの:
 
 - キーは `~/.config/google-play-developer-publishing/keys/` にコピーされ（パーミッション0600）、プロファイルが `config.toml` に登録されます
@@ -108,7 +112,7 @@ gplay testers set --track alpha --group qa@example.com
 
 ## 全コマンド一覧（APIドメイン別）
 
-Android Publisher API v3（ディスカバリドキュメント revision 20260722）のドメインを専用サブコマンドでカバーしています。書き込み系はすべて `--dry-run` 対応。詳細は `gplay <command> --help` / `gplay --llm` を参照。
+Android Publisher API v3（ディスカバリドキュメント revision 20260722）の **全143メソッドを網羅** しています。書き込み系はすべて `--dry-run` 対応。詳細は `gplay <command> --help` / `gplay --llm` を参照。
 
 | コマンド | 対応ドメイン |
 |---------|-------------|
@@ -121,8 +125,9 @@ Android Publisher API v3（ディスカバリドキュメント revision 2026072
 | `release` | アップロード→トラック設定→commit の一括実行 |
 | `internal-sharing` | 内部アプリ共有（審査もトラックも介さない共有リンク） |
 | `products` | 管理対象アプリ内商品（inappproducts、価格は `JPY:480` 形式で指定） |
-| `subscriptions` | 定期購入・基本プラン・オファー（monetization API） |
-| `one-time-products` | 1回限りの商品・購入オプション・オファー（新モデル） |
+| `subscriptions` | 定期購入・基本プラン・オファー（monetization API、一括更新・状態変更・価格移行含む） |
+| `one-time-products` | 1回限りの商品・購入オプション・オファー（新モデル、一括操作含む） |
+| `pricing` | 価格の全地域変換（Play Consoleの価格換算と同じ計算） |
 | `purchases` | 購入の検証・承認・消費・解約・返金・取り消し（v1 / v2）、無効化された購入の一覧 |
 | `orders` | 注文の取得・一括取得・返金・返金リクエストの審査 |
 | `reviews` | レビューの一覧・取得・返信 |
@@ -133,8 +138,11 @@ Android Publisher API v3（ディスカバリドキュメント revision 2026072
 | `users` / `grants` | デベロッパーアカウントのユーザーとアプリ単位の権限 |
 | `external-transactions` | 代替課金システムの取引報告 |
 | `apps` | アクセス可能なアプリの一覧（後述のとおりReporting APIを使用） |
+| `app-store` | **Google Play以外のアプリストア運営者向け**：ホスト対象アプリの登録・審査提出・APK/画像/ポリシー宣言ファイルのアップロード、Playカタログエクスポートの参照 |
 
-専用コマンド化していない枝葉は `gplay api` で直接呼び出せます。
+`app-store` はGoogleが承認したアプリストア事業者のみが利用でき、それ以外のアカウントでは403になります。アプリ開発者としての利用には不要です。
+
+複雑なリソース（基本プラン、オファー、デバイスティア設定、外部取引など）は `--from-json @file.json` でリソースJSONをそのまま渡せます。将来APIに追加されたエンドポイントは `gplay api` で呼び出せます。
 
 ### APIでは操作できず人間が行う必要がある工程
 
@@ -158,6 +166,8 @@ Android Publisher API v3（ディスカバリドキュメント revision 2026072
 - **50GBまでのAABは再開可能アップロード**で送信し、進捗を標準エラーに表示します。
 - **購入は3日以内にacknowledgeが必要**（未承認だと自動返金されます）。新規実装では v2 エンドポイント（`purchases subscription-v2` など）を推奨します。
 - **権限とAPI有効化の反映には数分かかる**ことがあります。403が出たら少し待って再試行してください。
+- **`403 PERMISSION_DENIED` は「認証は成功、権限が無い」の意味**です。認証失敗（401）やAPI未有効化とは別物なので、切り分けて対処してください。トークン自体が取れているかは `gplay token` で確認できます。
+- **`users list` は `pageSize=-1` が必須**です（APIが他の値を拒否します）。ディスカバリドキュメントからは読み取れない挙動で、gplay 側で対応済みです。
 
 ## ヘルプ
 

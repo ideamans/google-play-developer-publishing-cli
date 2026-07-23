@@ -40,7 +40,10 @@ var usersListCmd = &cobra.Command{
 	Example: `  gplay users list`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runDeveloper(cmd, func(ctx context.Context, c *api.Client, dev string) error {
-			items, err := c.ListAll(ctx, "/developers/"+esc(dev)+"/users?pageSize=100", "users")
+			// The endpoint advertises pageSize but rejects any real page size:
+			// "Pagination is not currently available. The page_size parameter
+			// must be set to -1." So ask for the whole list in one response.
+			items, err := c.ListAll(ctx, "/developers/"+esc(dev)+"/users?pageSize=-1", "users")
 			if err != nil {
 				return err
 			}

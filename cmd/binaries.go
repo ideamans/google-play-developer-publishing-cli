@@ -20,6 +20,7 @@ var (
 	binaryFileType      string
 	binaryFromJSON      string
 	binaryReferences    int64
+	binaryReplace       bool
 )
 
 // --- App bundles ---------------------------------------------------------------
@@ -270,7 +271,13 @@ var expansionReuseCmd = &cobra.Command{
 		return runEdit(cmd, func(ctx context.Context, e *edit) error {
 			path := e.path("/apks/%d/expansionFiles/%s", binaryVersionCode, esc(binaryFileType))
 			body := map[string]any{"referencesVersion": binaryReferences}
-			if _, err := e.c.Patch(ctx, path, body); err != nil {
+			var err error
+			if binaryReplace {
+				_, err = e.c.Put(ctx, path, body)
+			} else {
+				_, err = e.c.Patch(ctx, path, body)
+			}
+			if err != nil {
 				return err
 			}
 			fmt.Printf("Version code %d now references the %s expansion file of version code %d.\n",
@@ -343,6 +350,7 @@ func init() {
 	expansionUploadCmd.Flags().StringVar(&binaryFile, "file", "", "path to the .obb (required)")
 	_ = expansionUploadCmd.MarkFlagRequired("file")
 	expansionReuseCmd.Flags().Int64Var(&binaryReferences, "references-version", 0, "version code whose expansion file to reuse (required)")
+	expansionReuseCmd.Flags().BoolVar(&binaryReplace, "replace", false, "send a full update (PUT), clearing omitted fields")
 	_ = expansionReuseCmd.MarkFlagRequired("references-version")
 
 	internalSharingUploadCmd.Flags().StringVar(&binaryFile, "file", "", "path to the .aab or .apk (required)")

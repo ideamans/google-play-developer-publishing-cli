@@ -26,6 +26,8 @@ var (
 	productAutoConvert  bool
 	productFromJSON     string
 	productLatency      string
+	productAllowMissing bool
+	productReplace      bool
 )
 
 var productsCmd = &cobra.Command{
@@ -126,7 +128,11 @@ default price.`,
 var productsUpdateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update an in-app product",
-	Long:  `Patches the fields you pass and leaves the rest untouched.`,
+	Long: `Patches the fields you pass and leaves the rest untouched.
+
+--replace sends a full update (PUT) instead, clearing omitted fields, and
+--allow-missing turns the call into an upsert (which the API only offers on the
+full update, so it implies --replace).`,
 	Example: `  gplay products update --sku premium_upgrade --default-price JPY:580 --auto-convert-prices
   gplay products update --sku premium_upgrade --status inactive`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -142,11 +148,22 @@ var productsUpdateCmd = &cobra.Command{
 			if productLatency != "" {
 				params.Set("latencyTolerance", productLatency)
 			}
+			// Only the full update (PUT) supports allowMissing, so --allow-missing
+			// and --replace both switch to it.
+			replace := productAllowMissing || productReplace
+			if productAllowMissing {
+				params.Set("allowMissing", "true")
+			}
 			path := appPath(pkg, "/inappproducts/%s", esc(productSKU))
 			if len(params) > 0 {
 				path += "?" + params.Encode()
 			}
-			if _, err := c.Patch(ctx, path, body); err != nil {
+			if replace {
+				_, err = c.Put(ctx, path, body)
+			} else {
+				_, err = c.Patch(ctx, path, body)
+			}
+			if err != nil {
 				return err
 			}
 			fmt.Printf("Product %s updated.\n", productSKU)
@@ -356,6 +373,8 @@ func init() {
 		sub.Flags().StringVar(&productFromJSON, "from-json", "", "InAppProduct JSON, or @file; other flags override it")
 	}
 	productsUpdateCmd.Flags().StringVar(&productLatency, "latency-tolerance", "", "PRODUCT_UPDATE_LATENCY_TOLERANCE_LATENCY_TOLERANT for bulk updates")
+	productsUpdateCmd.Flags().BoolVar(&productAllowMissing, "allow-missing", false, "create the product when it does not exist (implies --replace)")
+	productsUpdateCmd.Flags().BoolVar(&productReplace, "replace", false, "send a full update (PUT), clearing omitted fields")
 	for _, sub := range []*cobra.Command{productsBatchGetCmd, productsBatchDeleteCmd} {
 		sub.Flags().StringArrayVar(&productSKUs, "sku", nil, "product id / SKU; repeatable (required)")
 		_ = sub.MarkFlagRequired("sku")
