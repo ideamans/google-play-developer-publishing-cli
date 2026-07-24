@@ -172,7 +172,31 @@ Android Publisher API v3（ディスカバリドキュメント revision 2026072
 ## ヘルプ
 
 - `gplay --help` / `gplay <command> --help` — 人間向けの通常のヘルプ
-- `gplay --llm` — LLMエージェント向けの詳細リファレンスを一括出力（クレデンシャルモデル、解決順序、editモデル、全コマンド・フラグ、`gplay api` のページネーションの注意点まで含む）。どのサブコマンドに付けても同じ全文が出ます
+
+### AIエージェントから使う
+
+`gplay llm` はAIエージェント向けの詳細リファレンスを一括出力します（クレデンシャルモデル、解決順序、editモデル、**実運用で判明した落とし穴**、全コマンド・フラグ、`gplay api` のページネーションの注意点）。コマンドカタログはcobraのコマンド定義から生成されるため実装と乖離せず、バイナリに埋め込まれているのでオフラインでも実行中のバージョンと必ず一致します。
+
+```bash
+gplay llm                  # Markdown（約3,000行。grepして使う想定）
+gplay llm --format json    # 章ごとのJSON配列
+gplay --llm                # 非推奨エイリアス。従来どおりどのサブコマンドに付けても動作します
+```
+
+Claude Code ではプラグインを導入すると `/gplay-usage` と `/gplay-install` が使えます。
+
+```
+/plugin marketplace add ideamans/claude-public-plugins
+/plugin install google-play-developer-publishing-cli@ideamans-plugins
+```
+
+同じスキルは Copilot や Cursor など Agent Skills 対応ホストでも利用できます。
+
+```bash
+gh skill install ideamans/google-play-developer-publishing-cli/plugins/google-play-developer-publishing-cli/skills/gplay-usage --agent copilot
+```
+
+スキル本体は [`plugins/google-play-developer-publishing-cli/`](plugins/google-play-developer-publishing-cli)、準拠している標準は [ideamans/go-llm-cli-kit](https://github.com/ideamans/go-llm-cli-kit) を参照してください。
 
 ## クレデンシャルの解決順序
 
