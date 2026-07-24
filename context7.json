@@ -1,0 +1,17 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "gplay — Google Play Developer Publishing CLI",
+  "description": "A non-interactive CLI for the Google Play Developer Publishing API (Android Publisher v3): upload AABs and APKs, move builds between tracks, run and halt staged rollouts, edit store listings and images, manage in-app products and subscriptions, and read reviews and orders. Authenticates with a Google service account key and follows Play's transactional edit model. Built for scripts and AI agents, with the complete reference embedded in the binary behind `gplay llm`.",
+  "folders": ["internal/llmdocs"],
+  "excludeFolders": ["plugins", ".github", "cmd"],
+  "rules": [
+    "Authentication uses a Google service account key registered with `gplay configure` and selected by --profile or GPLAY_PROFILE. The service account must be granted API access in Play Console under Users and permissions; a 401 or 403 means that grant is missing rather than the key being malformed.",
+    "An app must have had at least one APK or AAB uploaded through the Play Console UI before the API can touch it. Until then every call 404s on the package — that is expected, not a bug, and cannot be worked around through the API.",
+    "Version codes must increase. Re-uploading an existing version code fails, and Play orders releases by version code, not by version name.",
+    "Changes are transactional: open an edit, apply changes against it, then commit. An edit that is never committed changes nothing, and a stale edit is rejected — a change that appears not to have applied is usually an uncommitted edit.",
+    "Promoting a release to production, changing a staged rollout percentage, or halting a release changes what real users receive immediately. Use --dry-run first, and treat the rollout fraction as a decision rather than a parameter.",
+    "The package name comes from -p / --package or GPLAY_PACKAGE. Most commands need it, and pointing at the wrong package is indistinguishable from a permissions problem in the error output.",
+    "--json prints the raw API JSON; the default output is a human-readable table. Parse only the JSON.",
+    "The complete reference is embedded in the binary: `gplay llm` (Markdown) or `gplay llm --format json`. It is regenerated from the cobra command tree, so prefer it over any remembered command list."
+  ]
+}

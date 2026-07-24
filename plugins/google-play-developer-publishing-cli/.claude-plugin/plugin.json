@@ -1,0 +1,13 @@
+{
+  "name": "google-play-developer-publishing-cli",
+  "description": "Adds /gplay-usage and /gplay-install skills for the Google Play Developer Publishing API (Android Publisher v3) — upload AABs, manage tracks and staged rollouts, edit store listings, handle in-app products and subscriptions, and read reviews and orders.",
+  "version": "0.2.0",
+  "author": {
+    "name": "Ideamans Inc.",
+    "email": "support@ideamans.com"
+  },
+  "homepage": "https://github.com/ideamans/google-play-developer-publishing-cli",
+  "repository": "https://github.com/ideamans/google-play-developer-publishing-cli",
+  "license": "MIT",
+  "keywords": ["google-play", "android", "publishing", "release", "cli", "llm", "agent"]
+}
